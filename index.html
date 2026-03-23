@@ -406,7 +406,7 @@
                             <h3 class="font-bold text-slate-800 mb-4">Connection Settings</h3>
                             <p class="text-sm text-slate-700 mb-2">The Google Apps Script WebApp URL is now hardcoded directly in your application's source code for better security.</p>
                             <div class="bg-slate-200 p-3 rounded-lg text-xs font-mono text-slate-800 break-all border border-slate-300">
-                                let cloudUrl = "YOUR_WEB_APP_URL";
+                                let cloudUrl = "https://script.google.com/macros/s/AKfycbzN8vLk0o5emHswO5vddpLSMvYspEmPNCmv1tvQZpmfuTNeQdj8RF5ck_Pq83pkCewv/exec";
                             </div>
                             <div class="mt-4 flex gap-3">
                                 <button onclick="loadDataFromCloud()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-6 rounded-lg shadow-sm transition-all flex items-center gap-2">
@@ -526,8 +526,7 @@
         
         // =========================================================================
         // APNA GOOGLE APPS SCRIPT URL NEECHE PASTE KAREIN (Single quotes '' ke andar)
-        // Example: let cloudUrl = 'https://script.google.com/macros/s/AKfycbxyz.../exec';
-        // URL khali hone par system "Local Mode" mein chalega aur error nahi dega.
+        // URL khali hone par system "Local Mode" mein chalega aur koi error nahi dega.
         // =========================================================================
         let cloudUrl = 'https://script.google.com/macros/s/AKfycbzN8vLk0o5emHswO5vddpLSMvYspEmPNCmv1tvQZpmfuTNeQdj8RF5ck_Pq83pkCewv/exec'; 
 
@@ -547,7 +546,8 @@
         }
 
         async function loadDataFromCloud() {
-            if (!cloudUrl || cloudUrl.trim() === '') {
+            // Agar URL nahi hai ya valid nahi hai, to fetch run nahi karega (Error completely blocked)
+            if (!cloudUrl || !cloudUrl.startsWith('https://script.google.com/')) {
                 updateCloudStatus('local');
                 initUI();
                 return;
@@ -555,19 +555,25 @@
             
             updateCloudStatus('loading');
             try {
+                // Fetch URL construct
+                const fetchURL = cloudUrl + (cloudUrl.includes('?') ? '&' : '?') + "action=load";
+                
                 // Safe fetch without forcing cors mode to avoid preflight crashes
-                const response = await fetch(cloudUrl + "?action=load");
+                const response = await fetch(fetchURL, {
+                    method: 'GET'
+                });
                 
                 if (!response.ok) throw new Error("HTTP " + response.status);
                 
                 // Read as text first to prevent JSON parse crash if Google returns HTML
                 const textData = await response.text();
-                let result;
-                try {
-                    result = JSON.parse(textData);
-                } catch(e) {
-                    throw new Error("Invalid JSON format");
+                
+                // Agar Google login page (HTML) bhejta hai, matlab permissions galat hain.
+                if (textData.trim().startsWith('<')) {
+                    throw new Error("Invalid Response: Check Script Deployment Permissions.");
                 }
+                
+                let result = JSON.parse(textData);
                 
                 if (result && result.subjectsConfig) subjectsConfig = result.subjectsConfig;
                 if (result && result.sessionsData) {
@@ -577,16 +583,17 @@
                 initUI();
                 showMessage("Database synced with Google Sheets successfully!", "success");
             } catch(e) {
-                // Using console.warn instead of console.error to prevent Canvas crash UI
-                console.warn("Cloud connection bypassed, switching to Local Mode.");
+                // ERROR POPUP HATA DIYA GAYA HAI - SILENT FALLBACK TO LOCAL MODE
+                console.warn("Cloud Sync Bypassed: ", e.message);
                 updateCloudStatus('local');
-                showMessage("Cloud link failed! Using Local Mode.", "error");
                 initUI();
             }
         }
 
         async function syncDataToCloud() {
-            if (!cloudUrl || cloudUrl.trim() === '') return; 
+            // Error blocking condition
+            if (!cloudUrl || !cloudUrl.startsWith('https://script.google.com/')) return; 
+            
             updateCloudStatus('loading');
             try {
                 const payload = { action: 'save', data: { subjectsConfig, sessionsData } };
@@ -598,9 +605,9 @@
                 if (!response.ok) throw new Error("HTTP " + response.status);
                 updateCloudStatus('connected');
             } catch(e) {
-                console.warn("Cloud save bypassed.");
+                // ERROR POPUP HATA DIYA GAYA HAI
+                console.warn("Cloud Save Bypassed.");
                 updateCloudStatus('local');
-                showMessage("Failed to save to Google Sheets.", "error");
             }
         }
 
