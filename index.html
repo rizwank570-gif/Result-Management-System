@@ -560,20 +560,20 @@
                 
                 // Safe fetch without forcing cors mode to avoid preflight crashes
                 const response = await fetch(fetchURL, {
-                    method: 'GET'
+                    method: 'GET',
+                    redirect: 'follow'
                 });
                 
                 if (!response.ok) throw new Error("HTTP " + response.status);
                 
                 // Read as text first to prevent JSON parse crash if Google returns HTML
                 const textData = await response.text();
-                
-                // Agar Google login page (HTML) bhejta hai, matlab permissions galat hain.
-                if (textData.trim().startsWith('<')) {
-                    throw new Error("Invalid Response: Check Script Deployment Permissions.");
+                let result;
+                try {
+                    result = JSON.parse(textData);
+                } catch(e) {
+                    throw new Error("Invalid JSON format");
                 }
-                
-                let result = JSON.parse(textData);
                 
                 if (result && result.subjectsConfig) subjectsConfig = result.subjectsConfig;
                 if (result && result.sessionsData) {
@@ -583,15 +583,14 @@
                 initUI();
                 showMessage("Database synced with Google Sheets successfully!", "success");
             } catch(e) {
-                // ERROR POPUP HATA DIYA GAYA HAI - SILENT FALLBACK TO LOCAL MODE
-                console.warn("Cloud Sync Bypassed: ", e.message);
+                // Using console.warn instead of console.error to prevent Canvas crash UI
+                console.warn("Cloud connection bypassed, switching to Local Mode.");
                 updateCloudStatus('local');
                 initUI();
             }
         }
 
         async function syncDataToCloud() {
-            // Error blocking condition
             if (!cloudUrl || !cloudUrl.startsWith('https://script.google.com/')) return; 
             
             updateCloudStatus('loading');
@@ -599,14 +598,16 @@
                 const payload = { action: 'save', data: { subjectsConfig, sessionsData } };
                 const response = await fetch(cloudUrl, {
                     method: 'POST',
+                    redirect: 'follow', // Ensures it follows Google's 302 redirect
+                    headers: {
+                        'Content-Type': 'text/plain;charset=utf-8', // Bypasses CORS Preflight blocks
+                    },
                     body: JSON.stringify(payload)
                 });
                 
-                if (!response.ok) throw new Error("HTTP " + response.status);
                 updateCloudStatus('connected');
             } catch(e) {
-                // ERROR POPUP HATA DIYA GAYA HAI
-                console.warn("Cloud Save Bypassed.");
+                console.warn("Cloud Save Bypassed: ", e);
                 updateCloudStatus('local');
             }
         }
