@@ -73,6 +73,9 @@
             <button onclick="switchTab('upload')" id="btn-upload" class="w-full text-left px-4 py-3 rounded-xl transition-all font-medium flex items-center gap-3 text-slate-600 hover:bg-slate-50 hover:text-slate-900 nav-btn">
                 <i class="fa-solid fa-file-import w-5 text-center"></i> Bulk Upload (CSV)
             </button>
+            <button onclick="switchTab('database')" id="btn-database" class="w-full text-left px-4 py-3 rounded-xl transition-all font-medium flex items-center gap-3 text-brand-600 bg-brand-50 hover:bg-brand-100 mt-4 border border-brand-200 nav-btn">
+                <i class="fa-solid fa-cloud w-5 text-center"></i> Google Sheets Setup
+            </button>
         </nav>
 
         <div class="p-4 border-t border-slate-100">
@@ -101,8 +104,9 @@
     <main class="flex-1 flex flex-col h-full overflow-hidden relative">
         <header class="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 shrink-0 hidden md:flex">
             <h2 id="top-title" class="text-xl font-bold text-slate-800">Master Sheet</h2>
-            <div class="flex items-center gap-4 text-sm text-slate-500 font-medium">
-                <span><i class="fa-regular fa-calendar mr-1"></i> <span id="current-date"></span></span>
+            <div class="flex items-center gap-4 text-sm font-medium">
+                <span id="cloud-status-badge" class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full border border-slate-200 flex items-center gap-2"><i class="fa-solid fa-server"></i> Local Mode</span>
+                <span class="text-slate-500"><i class="fa-regular fa-calendar mr-1"></i> <span id="current-date"></span></span>
             </div>
         </header>
 
@@ -389,6 +393,41 @@
                 </div>
             </section>
 
+            <!-- TAB 7: GOOGLE SHEETS DATABASE SETUP -->
+            <section id="tab-database" class="tab-content hidden fade-in max-w-4xl mx-auto">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-6 md:p-8 border-b border-slate-100 bg-emerald-50/50">
+                        <h2 class="text-2xl font-bold text-emerald-900"><i class="fa-solid fa-file-excel mr-2 text-emerald-600"></i> Google Sheets Integration</h2>
+                        <p class="text-sm text-emerald-700 mt-1">Connect your app to Google Sheets to auto-save and view all records in real-time.</p>
+                    </div>
+                    
+                    <div class="p-6 md:p-8 space-y-6">
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-6">
+                            <h3 class="font-bold text-slate-800 mb-4">Connection Settings</h3>
+                            <label class="text-sm font-semibold text-slate-700 block mb-2">Google Apps Script WebApp URL <span class="text-red-500">*</span></label>
+                            <input type="url" id="cloud-url-input" placeholder="https://script.google.com/macros/s/AKfycb.../exec" class="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-slate-800 font-mono text-sm">
+                            <div class="mt-4 flex gap-3">
+                                <button onclick="saveCloudSettings()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-6 rounded-lg shadow-sm transition-all">
+                                    Connect & Sync
+                                </button>
+                                <button onclick="disconnectCloud()" class="bg-white border border-red-200 text-red-600 hover:bg-red-50 font-medium py-2 px-6 rounded-lg transition-all">
+                                    Disconnect
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                            <h3 class="font-bold text-blue-900 mb-2"><i class="fa-solid fa-circle-info mr-1"></i> How it works</h3>
+                            <p class="text-sm text-blue-800 mb-2">Once connected, the system will automatically perform two actions in your Google Sheet on every update:</p>
+                            <ul class="list-disc list-inside text-sm text-blue-800 space-y-1 ml-2">
+                                <li>It will save the raw backend data in a sheet named <b>"SystemConfig"</b>.</li>
+                                <li>It will generate a beautifully formatted, readable table in a sheet named <b>"MasterSheet"</b> so you can directly view, print, or share from Excel/Google Sheets.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- TAB 4: UPLOAD CSV -->
             <section id="tab-upload" class="tab-content hidden fade-in max-w-4xl mx-auto">
                 <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -487,6 +526,97 @@
         let currentSession = "2025-2026";
         let currentUploadType = "students"; 
         let currentEditingRollNo = null;
+        let cloudUrl = localStorage.getItem('eduManageCloudUrl') || '';
+
+        function updateCloudStatus(status) {
+            const badge = document.getElementById('cloud-status-badge');
+            if(!badge) return;
+            if(status === 'loading') {
+                badge.className = "px-3 py-1 bg-amber-50 text-amber-600 rounded-full border border-amber-200 flex items-center gap-2";
+                badge.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Syncing...';
+            } else if(status === 'connected') {
+                badge.className = "px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-200 flex items-center gap-2";
+                badge.innerHTML = '<i class="fa-solid fa-cloud-check"></i> Connected';
+            } else {
+                badge.className = "px-3 py-1 bg-slate-100 text-slate-600 rounded-full border border-slate-200 flex items-center gap-2";
+                badge.innerHTML = '<i class="fa-solid fa-server"></i> Local Mode';
+            }
+        }
+
+        async function loadDataFromCloud() {
+            if (!cloudUrl) {
+                initUI();
+                return;
+            }
+            updateCloudStatus('loading');
+            try {
+                const response = await fetch(cloudUrl + "?action=load");
+                const result = await response.json();
+                
+                if (result && result.subjectsConfig) subjectsConfig = result.subjectsConfig;
+                if (result && result.sessionsData) {
+                    sessionsData = result.sessionsData;
+                }
+                updateCloudStatus('connected');
+                initUI();
+                showMessage("Database synced with Google Sheets successfully!", "success");
+            } catch(e) {
+                console.error(e);
+                updateCloudStatus('local');
+                showMessage("Cloud connection failed. Using local storage.", "error");
+                initUI();
+            }
+        }
+
+        async function syncDataToCloud() {
+            if (!cloudUrl) return; 
+            updateCloudStatus('loading');
+            try {
+                const payload = { action: 'save', data: { subjectsConfig, sessionsData } };
+                await fetch(cloudUrl, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                updateCloudStatus('connected');
+            } catch(e) {
+                console.error(e);
+                updateCloudStatus('local');
+                showMessage("Failed to save to Google Sheets.", "error");
+            }
+        }
+
+        function saveCloudSettings() {
+            const url = document.getElementById('cloud-url-input').value.trim();
+            if(!url) return showMessage("Please enter a valid WebApp URL", "error");
+            cloudUrl = url;
+            localStorage.setItem('eduManageCloudUrl', cloudUrl);
+            loadDataFromCloud();
+        }
+
+        function disconnectCloud() {
+            cloudUrl = '';
+            localStorage.removeItem('eduManageCloudUrl');
+            document.getElementById('cloud-url-input').value = '';
+            updateCloudStatus('local');
+            showMessage("Disconnected from Google Sheets.");
+        }
+
+        function initUI() {
+            populateSessionDropdown();
+            if(!sessionsData[currentSession]) {
+                currentSession = Object.keys(sessionsData)[0] || "2025-2026";
+            }
+            const selector = document.getElementById('session-select');
+            if(selector) selector.value = currentSession;
+
+            renderDynamicTableHeaders();
+            renderTable();
+            buildMarksGrid();
+            renderSubjectsList();
+            toggleUploadType();
+            
+            if(cloudUrl) document.getElementById('cloud-url-input').value = cloudUrl;
+        }
 
         function populateSessionDropdown() {
             const select = document.getElementById('session-select');
@@ -510,6 +640,7 @@
                 populateSessionDropdown();
                 changeSession();
                 showMessage(`New session ${sessionStr} created!`);
+                syncDataToCloud();
             }
         }
 
@@ -519,13 +650,7 @@
         }
 
         window.onload = () => {
-            populateSessionDropdown();
-            currentSession = document.getElementById('session-select').value;
-            renderDynamicTableHeaders();
-            renderTable();
-            buildMarksGrid();
-            renderSubjectsList();
-            toggleUploadType(); 
+            loadDataFromCloud();
         };
 
         function changeSession() {
@@ -539,7 +664,7 @@
         }
 
         // Navigation
-        const titles = { 'view': 'Master Result Sheet', 'add': 'Register New Student', 'marks': 'Evaluate Marks', 'upload': 'Data Management Portal', 'subjects': 'Subject Management', 'search': 'Student Report Card' };
+        const titles = { 'view': 'Master Result Sheet', 'add': 'Register New Student', 'marks': 'Evaluate Marks', 'upload': 'Data Management Portal', 'subjects': 'Subject Management', 'search': 'Student Report Card', 'database': 'Google Sheets Integration' };
         
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => { el.classList.add('hidden'); el.classList.remove('fade-in'); });
@@ -627,6 +752,7 @@
             renderDynamicTableHeaders();
             renderTable();
             buildMarksGrid();
+            syncDataToCloud();
         }
 
         function renderDynamicTableHeaders() {
@@ -692,6 +818,7 @@
             document.getElementById('search-roll').value = rollNo;
             switchTab('marks');
             searchStudent();
+            syncDataToCloud();
         }
 
         function renderTable() {
@@ -842,6 +969,7 @@
             document.getElementById('search-roll').value = '';
             document.getElementById('marks-section').classList.add('hidden');
             renderTable(); // Refresh master sheet invisibly
+            syncDataToCloud();
         }
 
         function viewStudentResult() {
@@ -1032,6 +1160,7 @@
                     if (updateCount > 0) { showMessage(`Updated results for ${updateCount} students.`); switchTab('view'); }
                     else if (skipCount > 0) { showMessage(`Ignored ${skipCount} unrecognised roll numbers.`, "error"); }
                 }
+                syncDataToCloud();
             };
             reader.readAsText(file);
         }
